@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>High Load Matrix App</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .box { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+        .hidden { display: none; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .status-PROCESSING { color: orange; font-weight: bold; }
+        .status-COMPLETED { color: green; font-weight: bold; }
+        .status-CANCELED { color: red; }
+    </style>
+</head>
+<body>
+
+    <h1>Web Computing System</h1>
+
+    <div id="auth-section" class="box">
+        <h3>Вхід / Реєстрація</h3>
+        <input type="text" id="username" placeholder="Логін">
+        <input type="password" id="password" placeholder="Пароль">
+        <button onclick="auth('register')">Зареєструватись</button>
+        <button onclick="auth('token')">Увійти</button>
+    </div>
+
+    <div id="app-section" class="box hidden">
+        <h3>Запустити нову задачу</h3>
+        <p>Задача: Обчислення матриці N*N</p>
+        <input type="number" id="matrixSize" placeholder="Розмір N (макс 2000)">
+        <button onclick="createTask()">Запустити обчислення</button>
+        <p id="server-msg" style="color: gray; font-size: 0.8em;"></p>
+
+        <h3>Історія та статус задач</h3>
+        <button onclick="loadTasks()">Оновити список</button>
+        <table id="tasksTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Розмір</th>
+                    <th>Статус</th>
+                    <th>Прогрес</th>
+                    <th>Сервер</th>
+                    <th>Дія</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button onclick="logout()" style="margin-top: 20px; background: #f88;">Вийти</button>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('access_token');
+
+        function updateUI() {
+            if (token) {
+                document.getElementById('auth-section').classList.add('hidden');
+                document.getElementById('app-section').classList.remove('hidden');
+                loadTasks();
+            } else {
+                document.getElementById('auth-section').classList.remove('hidden');
+                document.getElementById('app-section').classList.add('hidden');
+            }
+        }
+
+        async function auth(endpoint) {
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+            const formData = new FormData();
+            formData.append('username', user);
+            formData.append('password', pass);
+
+            const res = await fetch(`https://localhost/${endpoint}`, {
+                method: 'POST', body: formData
+            });
+
+            if (res.ok) {
+                if (endpoint === 'token') {
+                    const data = await res.json();
+                    token = data.access_token;
+                    localStorage.setItem('access_token', token);
+                    updateUI();
+                } else {
+                    alert('Зареєстровано! Тепер увійдіть.');
+                }
+            } else {
+                alert('Помилка авторизації');
+            }
+        }
+
+        async function createTask() {
+            const size = document.getElementById('matrixSize').value;
+            // Вимога 1: Валідація на клієнті
+            if (size > 2000) {
+                alert("Помилка: Максимальний розмір 2000!");
+                return;
+            }
+
+            const res = await fetch(`https://localhost/tasks?size=${size}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('server-msg').innerText = `Запит прийняв: ${data.handled_by_api}`;
+                loadTasks();
+            } else {
+                alert('Помилка створення задачі');
+            }
+        }
+
+        async function loadTasks() {
+            const res = await fetch('https://localhost/tasks', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const tasks = await res.json();
+            const tbody = document.querySelector('#tasksTable tbody');
+            tbody.innerHTML = '';
+            
+            tasks.forEach(t => {
+                let action = '';
+                if (t.status === 'PENDING' || t.status === 'PROCESSING') {
+                    action = `<button onclick="cancelTask(${t.id})">Скасувати</button>`;
+                }
+                
+                const row = `<tr>
+                    <td>${t.id}</td>
+                    <td>${t.matrix_size}</td>
+                    <td class="status-${t.status}">${t.status}</td>
+                    <td>${t.progress}%</td>
+                    <td>${t.server_handler || '-'}</td>
+                    <td>${action}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+            });
+        }
+
+        async function cancelTask(id) {
+            await fetch(`https://localhost/tasks/${id}/cancel`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            loadTasks();
+        }
+
+        function logout() {
+            localStorage.removeItem('access_token');
+            token = null;
+            updateUI();
+        }
+
+        // Автооновлення кожні 2 секунди
+        setInterval(() => { if(token) loadTasks(); }, 2000);
+
+        updateUI();
+    </script>
+</body>
+</html>

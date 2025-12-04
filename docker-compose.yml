@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: webapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend1:
+    build: ./backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/webapp
+      - SERVER_ID=Server_1
+    depends_on:
+      - db
+
+  backend2:
+    build: ./backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/webapp
+      - SERVER_ID=Server_2
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "443:443"  # HTTPS порт
+      - "80:80"    # HTTP (для редіректу або тестів)
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/cert.crt:/etc/nginx/ssl/cert.crt
+      - ./nginx/cert.key:/etc/nginx/ssl/cert.key
+    depends_on:
+      - backend1
+      - backend2
+
+volumes:
+  postgres_data:
