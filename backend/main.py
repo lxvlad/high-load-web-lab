@@ -285,14 +285,31 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.post("/tasks")
 def create_task(size: int, background_tasks: BackgroundTasks, 
                 user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 1. Валідація вхідних даних (розмір)
     if size > 2000:
         raise HTTPException(status_code=400, detail="Matrix too big (Max 2000)")
     
+    # 2. ПЕРЕВІРКА: Дозволяємо тільки 1 активну задачу
+    # Шукаємо, чи є у користувача задачі, які ще не завершені (PENDING або PROCESSING)
+    active_task = db.query(Task).filter(
+        Task.user_id == user.id,
+        Task.status.in_(["PENDING", "PROCESSING"])
+    ).first()
+
+    if active_task:
+        # Якщо така задача знайдена — забороняємо створювати нову
+        raise HTTPException(
+            status_code=400, 
+            detail="You already have an active task. Please wait for it to finish or cancel it."
+        )
+
+    # 3. Створення задачі (якщо активних немає)
     new_task = Task(user_id=user.id, matrix_size=size, status="PENDING")
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
 
+    # Відправляємо у фонове виконання
     background_tasks.add_task(heavy_matrix_task, new_task.id, size, db)
     
     return {"id": new_task.id, "status": "PENDING", "handled_by_api": SERVER_ID}
