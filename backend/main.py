@@ -5,6 +5,7 @@ import asyncio
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse # <--- Додано для HTML
+import random
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from passlib.context import CryptContext
@@ -209,24 +210,52 @@ async def heavy_matrix_task(task_id: int, size: int, db: Session):
         task.server_handler = SERVER_ID
         db.commit()
 
-        total_steps = 10
-        for i in range(total_steps):
-            db.refresh(task)
-            if task.status == "CANCELED":
-                return 
+        # 1. Генерація матриць (імітуємо вхідні дані)
+        # Для N=500 це вже буде відчутно довго на чистому Python
+        matrix_a = [[random.random() for _ in range(size)] for _ in range(size)]
+        matrix_b = [[random.random() for _ in range(size)] for _ in range(size)]
+        result_matrix = [[0] * size for _ in range(size)]
 
-            await asyncio.sleep(1) 
-            
-            task.progress = int((i + 1) / total_steps * 100)
-            db.commit()
+        # 2. Множення матриць (O(N^3))
+        for i in range(size):
+            # Перевірка скасування та оновлення прогресу
+            # Робимо це не на кожній ітерації, а, наприклад, кожні 10 рядків, щоб не гальмувати БД
+            if i % 10 == 0 or i == size - 1:
+                db.refresh(task)
+                if task.status == "CANCELED":
+                    print(f"Task {task_id} was canceled")
+                    return 
+                
+                # Даємо "подихати" серверу, щоб він міг обробити інші запити (наприклад, cancel)
+                await asyncio.sleep(0) 
+
+                # Оновлюємо прогрес
+                progress_percent = int((i + 1) / size * 100)
+                if task.progress != progress_percent:
+                    task.progress = progress_percent
+                    db.commit()
+
+            # Власне математика
+            for j in range(size):
+                dot_product = 0
+                for k in range(size):
+                    dot_product += matrix_a[i][k] * matrix_b[k][j]
+                result_matrix[i][j] = dot_product
 
         task.status = "COMPLETED"
-        task.result = json.dumps({"message": f"Matrix {size}x{size} calculated successfully"})
+        # Не записуємо всю матрицю в результат, бо це заб'є базу. Тільки повідомлення.
+        task.result = json.dumps({"message": f"Matrix {size}x{size} multiplied successfully. Element [0][0]={result_matrix[0][0]:.2f}"})
         db.commit()
+        
     except Exception as e:
-        task.status = "ERROR"
-        task.result = str(e)
-        db.commit()
+        print(f"Error processing task {task_id}: {e}")
+        # Потрібно перевідкрити сесію або відкотити, якщо сталася помилка БД
+        try:
+            task.status = "ERROR"
+            task.result = str(e)
+            db.commit()
+        except:
+            pass
 
 # --- ROUTES ---
 
