@@ -16,6 +16,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/webapp
       - SERVER_ID=Server_1
+      - SECRET_KEY=my_super_secret_key_for_lab
     depends_on:
       - db
 
@@ -25,18 +26,20 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/webapp
       - SERVER_ID=Server_2
+      - SECRET_KEY=my_super_secret_key_for_lab
     depends_on:
       - db
 
   nginx:
     image: nginx:latest
     ports:
-      - "443:443"  # HTTPS порт
-      - "80:80"    # HTTP (для редіректу або тестів)
+      - "443:443"    # HTTPS порт залишаємо
+      - "8080:80"    # ЗМІНА: Зовнішній порт тепер 8080, а не 80
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/cert.crt:/etc/nginx/ssl/cert.crt
       - ./nginx/cert.key:/etc/nginx/ssl/cert.key
+      - ./frontend:/usr/share/nginx/html
     depends_on:
       - backend1
       - backend2
